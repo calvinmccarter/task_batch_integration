@@ -11,6 +11,10 @@ par = {
     "bootstrap_fraction": 1.0,
     "n_epochs": 5,
     "learning_rate": 1e-3,
+    "mmd_size": 20,
+    "batch_size": 8,
+    "weight_decay": 1e-4,
+    "random_state": 42,
 }
 meta = {
     "name": "condo",

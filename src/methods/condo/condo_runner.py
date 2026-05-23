@@ -49,13 +49,18 @@ def _build_adapter(par: dict[str, Any]):
     if divergence == "mmd":
         from condo import ConDoAdapterMMD
 
-        return ConDoAdapterMMD(
+        kwargs = dict(
             transform_type=transform_type,
             bootstrap_fraction=float(par.get("bootstrap_fraction", 1.0)),
             n_epochs=int(par.get("n_epochs", 5)),
             learning_rate=float(par.get("learning_rate", 1e-3)),
+            mmd_size=int(par.get("mmd_size", 20)),
+            batch_size=int(par.get("batch_size", 8)),
+            weight_decay=float(par.get("weight_decay", 1e-4)),
+            random_state=int(par.get("random_state", 42)),
             verbose=0,
         )
+        return ConDoAdapterMMD(**kwargs)
     raise ValueError(f"Unknown divergence: {divergence!r}")
 
 

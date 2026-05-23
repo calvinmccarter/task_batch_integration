@@ -71,6 +71,26 @@ arguments:
     type: float
     default: 0.001
     description: Learning rate; only applies when divergence is mmd.
+  - name: --mmd_size
+    type: integer
+    default: 20
+    description: |
+      Number of samples used in each MMD evaluation (K_X in the paper).
+      Only applies when divergence is mmd.
+  - name: --batch_size
+    type: integer
+    default: 8
+    description: |
+      Number of MMD-loss evaluations per gradient step (K_Z in the paper).
+      Only applies when divergence is mmd.
+  - name: --weight_decay
+    type: float
+    default: 1e-4
+    description: AdamW weight decay; only applies when divergence is mmd.
+  - name: --random_state
+    type: integer
+    default: 42
+    description: Random seed for the adapter; only applies when divergence is mmd.
 resources:
   - type: python_script
     path: script.py
