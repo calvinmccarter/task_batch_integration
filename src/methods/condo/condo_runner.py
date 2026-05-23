@@ -42,10 +42,13 @@ def _to_dense(x: Any) -> np.ndarray:
 def _build_adapter(par: dict[str, Any]):
     divergence = par["divergence"]
     transform_type = par["transform_type"]
+    device = par.get("device", "cpu")
     if divergence == "kld":
         from condo import ConDoAdapterKLD
 
-        return ConDoAdapterKLD(transform_type=transform_type, verbose=0)
+        return ConDoAdapterKLD(
+            transform_type=transform_type, verbose=0, device=device,
+        )
     if divergence == "mmd":
         from condo import ConDoAdapterMMD
 
@@ -59,6 +62,7 @@ def _build_adapter(par: dict[str, Any]):
             weight_decay=float(par.get("weight_decay", 1e-4)),
             random_state=int(par.get("random_state", 42)),
             verbose=0,
+            device=device,
         )
         return ConDoAdapterMMD(**kwargs)
     raise ValueError(f"Unknown divergence: {divergence!r}")

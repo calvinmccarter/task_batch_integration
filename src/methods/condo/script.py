@@ -15,6 +15,7 @@ par = {
     "batch_size": 8,
     "weight_decay": 1e-4,
     "random_state": 42,
+    "device": "cpu",
 }
 meta = {
     "name": "condo",

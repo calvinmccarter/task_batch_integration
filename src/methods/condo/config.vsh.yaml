@@ -91,6 +91,13 @@ arguments:
     type: integer
     default: 42
     description: Random seed for the adapter; only applies when divergence is mmd.
+  - name: --device
+    type: string
+    default: cpu
+    description: |
+      Torch device for the affine KLD optimization and the MMD training
+      loop. Use 'cuda' or e.g. 'cuda:0' to run on GPU. Numpy
+      preprocessing stays on CPU regardless.
 resources:
   - type: python_script
     path: script.py
