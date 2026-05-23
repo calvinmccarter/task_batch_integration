@@ -1,31 +1,64 @@
 __merge__: ../../api/comp_method.yaml
 name: condo
-label: condo
+label: ConDo
 summary: "ConDo is a feature transformation method for batch correction based on matching conditional distributions."
 description: |
-  Confounded Domain Adaptation (ConDo) is a batch correction method that performs a linear transformation to features, to match their conditional distribution given biological variables of interest.
-  It will first learn (nonlinear) a conditional generative model for each batch, of the features given biological variables.
-  Then, it finds a linear feature transformation, either affine or location-scale, that minimizes the expected divergence between the conditional distributions.
+  Confounded Domain Adaptation (ConDo) is a batch correction method that
+  performs a linear transformation of the features to match their
+  conditional distribution given biological variables of interest. It fits
+  one adapter per non-reference batch (largest batch as reference),
+  conditioning on cell_type as the biological confounder.
 references:
   # McCarter C.
   # Towards Backwards-Compatible Data with Confounded Domain Adaptation.
   # Transactions on Machine Learning Research. 2024.
-  doi: 
+  doi:
     - 10.5281/zenodo.17066563
 links:
   documentation: https://github.com/calvinmccarter/condo-adapter?tab=readme-ov-file#usage
   repository: https://github.com/calvinmccarter/condo-adapter
 info:
+  method_types: [feature]
   preferred_normalization: log_cp10k
+  variants:
+    condo_kld_location_scale:
+      divergence: kld
+      transform_type: location-scale
+    condo_kld_affine:
+      divergence: kld
+      transform_type: affine
+    condo_mmd_location_scale:
+      divergence: mmd
+      transform_type: location-scale
+    condo_mmd_affine:
+      divergence: mmd
+      transform_type: affine
 arguments:
   - name: --divergence
     type: string
+    choices: [kld, mmd]
     default: kld
     description: Distributional divergence to use.
   - name: --transform_type
     type: string
-    default: affine
-    description: Type of linear transformation to apply
+    choices: [location-scale, affine]
+    default: location-scale
+    description: Type of linear transformation to apply.
+  - name: --rep
+    type: string
+    choices: [features, pca]
+    default: features
+    description: |
+      Representation to fit on. 'features' fits on the normalized expression
+      matrix and writes corrected_counts (feature method). 'pca' fits on
+      obsm['X_pca'] and writes obsm['X_emb'] (embedding output).
+  - name: --hvg_only
+    type: boolean
+    default: false
+    description: |
+      Restrict the feature-space fit to var['hvg'] columns; pass through
+      non-HVG genes at the source's normalized value. Only applies when
+      --rep=features.
   - name: --bootstrap_fraction
     type: float
     default: 1.0
@@ -41,23 +74,24 @@ arguments:
 resources:
   - type: python_script
     path: script.py
+  - path: condo_runner.py
   - path: /src/utils/read_anndata_partial.py
 engines:
   - type: docker
-    image: openproblems/base_pytorch_nvidia:1.0.0 
+    image: openproblems/base_pytorch_nvidia:1.0.0
     setup:
       - type: python
         pypi:
-        - condo==1.0.0
-        - miceforest==5.7.0
-        - numpy<2
-        - pandas
-        - pytorch-minimize==0.0.2
-        - scikit-learn
-        - scipy>=1.6
-        - torch==1.9.0
+          - condo==1.0.0
+          - miceforest==5.7.0
+          - numpy<2
+          - pandas
+          - pytorch-minimize==0.0.2
+          - scikit-learn
+          - scipy>=1.6
+          - torch==1.9.0
 runners:
   - type: executable
   - type: nextflow
     directives:
-      label: [midtime,midmem,midcpu,gpu]
+      label: [midtime, midmem, midcpu, gpu]
