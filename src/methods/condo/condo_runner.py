@@ -63,6 +63,7 @@ def _build_adapter(par: dict[str, Any]):
             random_state=int(par.get("random_state", 42)),
             verbose=0,
             device=device,
+            optimizer=str(par.get("optimizer", "adamw")),
         )
         return ConDoAdapterMMD(**kwargs)
     raise ValueError(f"Unknown divergence: {divergence!r}")

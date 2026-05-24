@@ -16,6 +16,7 @@ par = {
     "weight_decay": 1e-4,
     "random_state": 42,
     "device": "cpu",
+    "optimizer": "adamw",
 }
 meta = {
     "name": "condo",

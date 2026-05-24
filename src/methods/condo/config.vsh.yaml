@@ -98,6 +98,15 @@ arguments:
       Torch device for the affine KLD optimization and the MMD training
       loop. Use 'cuda' or e.g. 'cuda:0' to run on GPU. Numpy
       preprocessing stays on CPU regardless.
+  - name: --optimizer
+    type: string
+    choices: [adamw, muon]
+    default: adamw
+    description: |
+      Optimizer used for the MMD SGD training loop. 'muon' routes 2D
+      parameters through the Newton-Schulz orthogonalized SGD path and
+      sub-2D parameters through an internal AdamW fallback (recommended
+      lr ~ 1e-2). Ignored for divergence=kld.
 resources:
   - type: python_script
     path: script.py
