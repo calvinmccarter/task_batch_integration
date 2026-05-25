@@ -226,6 +226,18 @@ def run_condo(par: dict, meta: dict) -> None:
             f">> Adapt batch={batch!r} (n={n_src}, shared cell types={len(shared)})",
             flush=True,
         )
+        if not shared:
+            # ConDo's product_prior requires at least one shared confounder
+            # value between source and target — otherwise the conditional
+            # weights collapse to 0/0 and the MMD/KLD loss is undefined.
+            # When that happens, leave the source batch unchanged (Y_out
+            # already holds its original values from the .copy() above).
+            print(
+                f">> SKIP batch={batch!r}: no cell types shared with target; "
+                f"cells left unchanged",
+                flush=True,
+            )
+            continue
         adapter = _build_adapter(par)
         adapter.fit(Ys, Yt, Zs, Zt)
         Y_out[src_mask] = adapter.transform(Ys)
