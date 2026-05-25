@@ -74,15 +74,55 @@ def _read_input(par: dict, meta: dict) -> ad.AnnData:
     from read_anndata_partial import read_anndata
 
     rep = par.get("rep", "features")
+    # The target-selection heuristic needs obsm['X_pca']; pull it in both modes
+    # so target_mode='best_pre_asw' works regardless of rep.
     if rep == "features":
         return read_anndata(
-            par["input"], X="layers/normalized", obs="obs", var="var", uns="uns"
+            par["input"], X="layers/normalized",
+            obs="obs", obsm="obsm", var="var", uns="uns",
         )
     if rep == "pca":
         return read_anndata(
             par["input"], obs="obs", obsm="obsm", var="var", uns="uns"
         )
     raise ValueError(f"Unknown rep: {rep!r}")
+
+
+def _pick_target_by_pre_asw(
+    adata: ad.AnnData, batches: np.ndarray, cell_types: np.ndarray
+) -> tuple[str, dict]:
+    """Pick the batch with the highest per-batch silhouette of cell_type in
+    the precomputed PCA representation. Returns (target_batch_label,
+    per_batch_asw_table)."""
+    from scib.metrics import silhouette
+
+    if "X_pca" not in adata.obsm:
+        raise ValueError(
+            "target_mode='best_pre_asw' requires obsm['X_pca']; "
+            f"obsm keys present: {list(adata.obsm.keys())}"
+        )
+    batch_labels = np.unique(batches)
+    per_batch: dict[str, float] = {}
+    for b in batch_labels:
+        mask = batches == b
+        if mask.sum() < 4:
+            per_batch[b] = float("-inf")
+            continue
+        sub = adata[mask].copy()
+        cts = sub.obs["cell_type"].astype(str)
+        keep_cts = cts.value_counts()[cts.value_counts() >= 2].index
+        keep_mask = cts.isin(keep_cts).values
+        if keep_mask.sum() < 4 or len(keep_cts) < 2:
+            per_batch[b] = float("-inf")
+            continue
+        sub2 = sub[keep_mask].copy()
+        try:
+            s = float(silhouette(sub2, label_key="cell_type", embed="X_pca"))
+        except Exception:
+            s = float("-inf")
+        per_batch[b] = s
+    best = max(per_batch.items(), key=lambda kv: kv[1])
+    return best[0], per_batch
 
 
 def _select_feature_columns(adata: ad.AnnData, hvg_only: bool) -> np.ndarray | None:
@@ -114,8 +154,44 @@ def run_condo(par: dict, meta: dict) -> None:
     cell_types = np.asarray(adata.obs["cell_type"].astype(str).values, dtype="U")
 
     counts = np.unique(batches, return_counts=True)
-    target_batch = counts[0][int(np.argmax(counts[1]))]
-    print(f">> Target batch: {target_batch} ({counts[1].max()} cells)", flush=True)
+    target_override = par.get("target_batch")
+    target_mode = par.get("target_mode", "best_pre_asw")
+    if target_override is not None:
+        if target_override not in set(counts[0]):
+            raise ValueError(
+                f"target_batch {target_override!r} not in batches: {list(counts[0])}"
+            )
+        target_batch = target_override
+        target_n = int(counts[1][list(counts[0]).index(target_batch)])
+        print(
+            f">> Target batch (override): {target_batch} ({target_n} cells)",
+            flush=True,
+        )
+    elif target_mode == "best_pre_asw":
+        # Pick the batch with the highest pre-integration silhouette of
+        # cell_type on the precomputed X_pca. Strongly correlated with
+        # post-integration asw_label (~0.93 on dkd).
+        target_batch, per_batch_asw = _pick_target_by_pre_asw(
+            adata, batches, cell_types
+        )
+        target_n = int(counts[1][list(counts[0]).index(target_batch)])
+        print(
+            f">> Target batch (best_pre_asw): {target_batch} "
+            f"(pre_asw={per_batch_asw[target_batch]:.4f}, {target_n} cells)",
+            flush=True,
+        )
+        # Helpful diagnostic: dump the full per-batch ranking.
+        ranked = sorted(per_batch_asw.items(), key=lambda kv: -kv[1])
+        for b, s in ranked:
+            print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
+    elif target_mode == "largest":
+        target_batch = counts[0][int(np.argmax(counts[1]))]
+        print(
+            f">> Target batch (largest): {target_batch} ({counts[1].max()} cells)",
+            flush=True,
+        )
+    else:
+        raise ValueError(f"Unknown target_mode: {target_mode!r}")
 
     if rep == "features":
         Y_full = _to_dense(adata.X).astype(np.float64)

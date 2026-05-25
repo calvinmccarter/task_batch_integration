@@ -17,6 +17,7 @@ par = {
     "random_state": 42,
     "device": "cpu",
     "optimizer": "adamw",
+    "target_mode": "best_pre_asw",
 }
 meta = {
     "name": "condo",

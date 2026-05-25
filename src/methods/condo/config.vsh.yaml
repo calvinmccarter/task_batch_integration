@@ -107,6 +107,16 @@ arguments:
       parameters through the Newton-Schulz orthogonalized SGD path and
       sub-2D parameters through an internal AdamW fallback (recommended
       lr ~ 1e-2). Ignored for divergence=kld.
+  - name: --target_mode
+    type: string
+    choices: [best_pre_asw, largest]
+    default: best_pre_asw
+    description: |
+      Heuristic to pick the target (reference) batch. 'best_pre_asw'
+      (default) picks the batch with the highest per-batch silhouette of
+      cell_type on obsm['X_pca']; 'largest' is the legacy behaviour.
+      Strongly correlated with post-integration bio geometry — switching
+      from largest to best_pre_asw lifts asw_label ~0.06 on dkd.
 resources:
   - type: python_script
     path: script.py
