@@ -109,14 +109,18 @@ arguments:
       lr ~ 1e-2). Ignored for divergence=kld.
   - name: --target_mode
     type: string
-    choices: [best_pre_asw, largest]
+    choices: [best_pre_asw, largest, agglomerative]
     default: best_pre_asw
     description: |
-      Heuristic to pick the target (reference) batch. 'best_pre_asw'
-      (default) picks the batch with the highest per-batch silhouette of
-      cell_type on obsm['X_pca']; 'largest' is the legacy behaviour.
-      Strongly correlated with post-integration bio geometry — switching
-      from largest to best_pre_asw lifts asw_label ~0.06 on dkd.
+      How to pick the integration target. 'best_pre_asw' (default)
+      picks the single batch with the highest per-batch silhouette of
+      cell_type on obsm['X_pca']; 'largest' is the legacy behaviour;
+      'agglomerative' walks the batch compatibility graph (batches
+      connected if they share at least one cell type), starts from the
+      highest-pre_asw seed and greedily merges the next compatible
+      batch into a growing target pool. See condo.batch_integration.
+      Agglomerative avoids zero-overlap fits and gives a growing
+      reference.
 resources:
   - type: python_script
     path: script.py

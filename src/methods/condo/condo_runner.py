@@ -156,6 +156,19 @@ def run_condo(par: dict, meta: dict) -> None:
     counts = np.unique(batches, return_counts=True)
     target_override = par.get("target_batch")
     target_mode = par.get("target_mode", "best_pre_asw")
+
+    # Compute per-batch pre-integration asw if any mode needs it.
+    per_batch_asw: dict[str, float] = {}
+    if target_mode in {"best_pre_asw", "agglomerative"} or target_override is None:
+        try:
+            _, per_batch_asw = _pick_target_by_pre_asw(
+                adata, batches, cell_types
+            )
+        except Exception as exc:
+            if target_mode in {"best_pre_asw", "agglomerative"}:
+                raise
+            print(f">> warning: pre-asw scoring failed: {exc}", flush=True)
+
     if target_override is not None:
         if target_override not in set(counts[0]):
             raise ValueError(
@@ -168,21 +181,14 @@ def run_condo(par: dict, meta: dict) -> None:
             flush=True,
         )
     elif target_mode == "best_pre_asw":
-        # Pick the batch with the highest pre-integration silhouette of
-        # cell_type on the precomputed X_pca. Strongly correlated with
-        # post-integration asw_label (~0.93 on dkd).
-        target_batch, per_batch_asw = _pick_target_by_pre_asw(
-            adata, batches, cell_types
-        )
+        target_batch = max(per_batch_asw, key=lambda b: per_batch_asw[b])
         target_n = int(counts[1][list(counts[0]).index(target_batch)])
         print(
             f">> Target batch (best_pre_asw): {target_batch} "
             f"(pre_asw={per_batch_asw[target_batch]:.4f}, {target_n} cells)",
             flush=True,
         )
-        # Helpful diagnostic: dump the full per-batch ranking.
-        ranked = sorted(per_batch_asw.items(), key=lambda kv: -kv[1])
-        for b, s in ranked:
+        for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
             print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
     elif target_mode == "largest":
         target_batch = counts[0][int(np.argmax(counts[1]))]
@@ -190,6 +196,18 @@ def run_condo(par: dict, meta: dict) -> None:
             f">> Target batch (largest): {target_batch} ({counts[1].max()} cells)",
             flush=True,
         )
+    elif target_mode == "agglomerative":
+        # No single target — agglomerative_integrate walks the
+        # compatibility graph from a seed (highest pre_asw) and merges
+        # batches one at a time into a growing pool.
+        target_batch = None
+        print(
+            f">> Target mode: agglomerative (seed = "
+            f"argmax pre_asw)",
+            flush=True,
+        )
+        for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
+            print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
     else:
         raise ValueError(f"Unknown target_mode: {target_mode!r}")
 
@@ -209,38 +227,55 @@ def run_condo(par: dict, meta: dict) -> None:
         hvg_mask = None
         Y = np.asarray(adata.obsm["X_pca"], dtype=np.float64)
 
-    Y_out = Y.copy()
+    if target_mode == "agglomerative":
+        from condo.batch_integration import agglomerative_integrate
 
-    target_mask = batches == target_batch
-    Yt = Y[target_mask]
-    Zt = cell_types[target_mask].reshape(-1, 1)
+        def _adapter_factory():
+            return _build_adapter(par)
 
-    source_batches = [b for b in counts[0] if b != target_batch]
-    for batch in source_batches:
-        src_mask = batches == batch
-        n_src = int(src_mask.sum())
-        Ys = Y[src_mask]
-        Zs = cell_types[src_mask].reshape(-1, 1)
-        shared = set(np.unique(Zs.ravel())) & set(np.unique(Zt.ravel()))
-        print(
-            f">> Adapt batch={batch!r} (n={n_src}, shared cell types={len(shared)})",
-            flush=True,
+        result = agglomerative_integrate(
+            Y=Y,
+            batches=batches,
+            confounders=cell_types,
+            batch_score=per_batch_asw,
+            adapter_factory=_adapter_factory,
+            verbose=True,
         )
-        if not shared:
-            # ConDo's product_prior requires at least one shared confounder
-            # value between source and target — otherwise the conditional
-            # weights collapse to 0/0 and the MMD/KLD loss is undefined.
-            # When that happens, leave the source batch unchanged (Y_out
-            # already holds its original values from the .copy() above).
+        Y_out = result.Y_out
+        # Skip the fixed-target loop below; jump straight to output.
+    else:
+        Y_out = Y.copy()
+
+        target_mask = batches == target_batch
+        Yt = Y[target_mask]
+        Zt = cell_types[target_mask].reshape(-1, 1)
+
+        source_batches = [b for b in counts[0] if b != target_batch]
+        for batch in source_batches:
+            src_mask = batches == batch
+            n_src = int(src_mask.sum())
+            Ys = Y[src_mask]
+            Zs = cell_types[src_mask].reshape(-1, 1)
+            shared = set(np.unique(Zs.ravel())) & set(np.unique(Zt.ravel()))
             print(
-                f">> SKIP batch={batch!r}: no cell types shared with target; "
-                f"cells left unchanged",
+                f">> Adapt batch={batch!r} (n={n_src}, shared cell types={len(shared)})",
                 flush=True,
             )
-            continue
-        adapter = _build_adapter(par)
-        adapter.fit(Ys, Yt, Zs, Zt)
-        Y_out[src_mask] = adapter.transform(Ys)
+            if not shared:
+                # ConDo's product_prior requires at least one shared confounder
+                # value between source and target — otherwise the conditional
+                # weights collapse to 0/0 and the MMD/KLD loss is undefined.
+                # When that happens, leave the source batch unchanged (Y_out
+                # already holds its original values from the .copy() above).
+                print(
+                    f">> SKIP batch={batch!r}: no cell types shared with target; "
+                    f"cells left unchanged",
+                    flush=True,
+                )
+                continue
+            adapter = _build_adapter(par)
+            adapter.fit(Ys, Yt, Zs, Zt)
+            Y_out[src_mask] = adapter.transform(Ys)
 
     print(">> Build output", flush=True)
     if rep == "features":
