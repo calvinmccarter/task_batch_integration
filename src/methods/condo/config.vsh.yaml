@@ -107,18 +107,6 @@ arguments:
       parameters through the Newton-Schulz orthogonalized SGD path and
       sub-2D parameters through an internal AdamW fallback (recommended
       lr ~ 1e-2). Ignored for divergence=kld.
-  - name: --target_mode
-    type: string
-    choices: [best_pre_asw, agglomerative]
-    default: agglomerative
-    description: |
-      How to pick the integration target. 'agglomerative' (default)
-      walks the batch compatibility graph (batches connected if they
-      share at least one cell type), seeds at the batch with the
-      highest per-batch silhouette of cell_type on obsm['X_pca'], and
-      greedily merges the next compatible batch into a growing target
-      pool. 'best_pre_asw' is the simpler variant that picks the
-      single seed batch and never grows the target.
 resources:
   - type: python_script
     path: script.py

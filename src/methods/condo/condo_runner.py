@@ -74,8 +74,8 @@ def _read_input(par: dict, meta: dict) -> ad.AnnData:
     from read_anndata_partial import read_anndata
 
     rep = par.get("rep", "features")
-    # The target-selection heuristic needs obsm['X_pca']; pull it in both modes
-    # so target_mode='best_pre_asw' works regardless of rep.
+    # The agglomerative seed selection needs obsm['X_pca'] for per-batch
+    # pre-integration silhouette; pull it in both rep modes.
     if rep == "features":
         return read_anndata(
             par["input"], X="layers/normalized",
@@ -91,14 +91,14 @@ def _read_input(par: dict, meta: dict) -> ad.AnnData:
 def _pick_target_by_pre_asw(
     adata: ad.AnnData, batches: np.ndarray, cell_types: np.ndarray
 ) -> tuple[str, dict]:
-    """Pick the batch with the highest per-batch silhouette of cell_type in
-    the precomputed PCA representation. Returns (target_batch_label,
-    per_batch_asw_table)."""
+    """Compute per-batch pre-integration silhouette of cell_type on
+    ``obsm['X_pca']``. Returns ``(argmax_batch_label, per_batch_asw_table)``.
+    Used as the seed/scoring criterion for the agglomerative integrator."""
     from scib.metrics import silhouette
 
     if "X_pca" not in adata.obsm:
         raise ValueError(
-            "target_mode='best_pre_asw' requires obsm['X_pca']; "
+            "agglomerative seed selection requires obsm['X_pca']; "
             f"obsm keys present: {list(adata.obsm.keys())}"
         )
     batch_labels = np.unique(batches)
@@ -153,46 +153,13 @@ def run_condo(par: dict, meta: dict) -> None:
     batches = np.asarray(adata.obs["batch"].astype(str).values, dtype="U")
     cell_types = np.asarray(adata.obs["cell_type"].astype(str).values, dtype="U")
 
-    counts = np.unique(batches, return_counts=True)
-    target_override = par.get("target_batch")
-    target_mode = par.get("target_mode", "agglomerative")
-
-    # Compute per-batch pre-integration asw — used both by best_pre_asw
-    # (as the target-choice criterion) and by agglomerative (as the
-    # batch_score for seed selection and neighbor ranking).
+    # Per-batch pre-integration silhouette of cell_type on obsm['X_pca'].
+    # Used by agglomerative_integrate as the seed criterion (argmax) and
+    # the neighbor-ranking score at each merge step.
     _, per_batch_asw = _pick_target_by_pre_asw(adata, batches, cell_types)
-
-    if target_override is not None:
-        if target_override not in set(counts[0]):
-            raise ValueError(
-                f"target_batch {target_override!r} not in batches: {list(counts[0])}"
-            )
-        target_batch = target_override
-        target_n = int(counts[1][list(counts[0]).index(target_batch)])
-        print(
-            f">> Target batch (override): {target_batch} ({target_n} cells)",
-            flush=True,
-        )
-    elif target_mode == "best_pre_asw":
-        target_batch = max(per_batch_asw, key=lambda b: per_batch_asw[b])
-        target_n = int(counts[1][list(counts[0]).index(target_batch)])
-        print(
-            f">> Target batch (best_pre_asw): {target_batch} "
-            f"(pre_asw={per_batch_asw[target_batch]:.4f}, {target_n} cells)",
-            flush=True,
-        )
-        for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
-            print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
-    elif target_mode == "agglomerative":
-        # No single target — agglomerative_integrate walks the
-        # compatibility graph from a seed (highest pre_asw) and merges
-        # batches one at a time into a growing pool.
-        target_batch = None
-        print(">> Target mode: agglomerative (seed = argmax pre_asw)", flush=True)
-        for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
-            print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
-    else:
-        raise ValueError(f"Unknown target_mode: {target_mode!r}")
+    print(">> Agglomerative seed = argmax pre_asw", flush=True)
+    for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
+        print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
 
     if rep == "features":
         Y_full = _to_dense(adata.X).astype(np.float64)
@@ -210,55 +177,20 @@ def run_condo(par: dict, meta: dict) -> None:
         hvg_mask = None
         Y = np.asarray(adata.obsm["X_pca"], dtype=np.float64)
 
-    if target_mode == "agglomerative":
-        from condo.batch_integration import agglomerative_integrate
+    from condo.batch_integration import agglomerative_integrate
 
-        def _adapter_factory():
-            return _build_adapter(par)
+    def _adapter_factory():
+        return _build_adapter(par)
 
-        result = agglomerative_integrate(
-            Y=Y,
-            batches=batches,
-            confounders=cell_types,
-            batch_score=per_batch_asw,
-            adapter_factory=_adapter_factory,
-            verbose=True,
-        )
-        Y_out = result.Y_out
-        # Skip the fixed-target loop below; jump straight to output.
-    else:
-        Y_out = Y.copy()
-
-        target_mask = batches == target_batch
-        Yt = Y[target_mask]
-        Zt = cell_types[target_mask].reshape(-1, 1)
-
-        source_batches = [b for b in counts[0] if b != target_batch]
-        for batch in source_batches:
-            src_mask = batches == batch
-            n_src = int(src_mask.sum())
-            Ys = Y[src_mask]
-            Zs = cell_types[src_mask].reshape(-1, 1)
-            shared = set(np.unique(Zs.ravel())) & set(np.unique(Zt.ravel()))
-            print(
-                f">> Adapt batch={batch!r} (n={n_src}, shared cell types={len(shared)})",
-                flush=True,
-            )
-            if not shared:
-                # ConDo's product_prior requires at least one shared confounder
-                # value between source and target — otherwise the conditional
-                # weights collapse to 0/0 and the MMD/KLD loss is undefined.
-                # When that happens, leave the source batch unchanged (Y_out
-                # already holds its original values from the .copy() above).
-                print(
-                    f">> SKIP batch={batch!r}: no cell types shared with target; "
-                    f"cells left unchanged",
-                    flush=True,
-                )
-                continue
-            adapter = _build_adapter(par)
-            adapter.fit(Ys, Yt, Zs, Zt)
-            Y_out[src_mask] = adapter.transform(Ys)
+    result = agglomerative_integrate(
+        Y=Y,
+        batches=batches,
+        confounders=cell_types,
+        batch_score=per_batch_asw,
+        adapter_factory=_adapter_factory,
+        verbose=True,
+    )
+    Y_out = result.Y_out
 
     print(">> Build output", flush=True)
     if rep == "features":
