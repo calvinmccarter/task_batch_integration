@@ -155,19 +155,12 @@ def run_condo(par: dict, meta: dict) -> None:
 
     counts = np.unique(batches, return_counts=True)
     target_override = par.get("target_batch")
-    target_mode = par.get("target_mode", "best_pre_asw")
+    target_mode = par.get("target_mode", "agglomerative")
 
-    # Compute per-batch pre-integration asw if any mode needs it.
-    per_batch_asw: dict[str, float] = {}
-    if target_mode in {"best_pre_asw", "agglomerative"} or target_override is None:
-        try:
-            _, per_batch_asw = _pick_target_by_pre_asw(
-                adata, batches, cell_types
-            )
-        except Exception as exc:
-            if target_mode in {"best_pre_asw", "agglomerative"}:
-                raise
-            print(f">> warning: pre-asw scoring failed: {exc}", flush=True)
+    # Compute per-batch pre-integration asw — used both by best_pre_asw
+    # (as the target-choice criterion) and by agglomerative (as the
+    # batch_score for seed selection and neighbor ranking).
+    _, per_batch_asw = _pick_target_by_pre_asw(adata, batches, cell_types)
 
     if target_override is not None:
         if target_override not in set(counts[0]):
@@ -190,22 +183,12 @@ def run_condo(par: dict, meta: dict) -> None:
         )
         for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
             print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
-    elif target_mode == "largest":
-        target_batch = counts[0][int(np.argmax(counts[1]))]
-        print(
-            f">> Target batch (largest): {target_batch} ({counts[1].max()} cells)",
-            flush=True,
-        )
     elif target_mode == "agglomerative":
         # No single target — agglomerative_integrate walks the
         # compatibility graph from a seed (highest pre_asw) and merges
         # batches one at a time into a growing pool.
         target_batch = None
-        print(
-            f">> Target mode: agglomerative (seed = "
-            f"argmax pre_asw)",
-            flush=True,
-        )
+        print(">> Target mode: agglomerative (seed = argmax pre_asw)", flush=True)
         for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
             print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
     else:
