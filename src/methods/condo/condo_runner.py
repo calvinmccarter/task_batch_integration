@@ -1,8 +1,11 @@
 """Shared runner for the ConDo batch-integration method.
 
-For each non-target batch (paired with the largest batch as target), fits
-one ConDo adapter conditioning on cell_type and applies the learned
-transform.
+Runs the agglomerative batch integrator: pick the seed batch with the
+highest per-batch pre-integration silhouette of cell_type on X_pca, then
+iteratively merge each next-best compatible (cell-type-overlapping)
+neighbour by fitting a ConDo adapter conditioned on cell_type. Batches
+in disconnected components of the compatibility graph are passed through
+untouched.
 
 Supports three orthogonal axes (set via the ``par`` dict in the viash
 script):

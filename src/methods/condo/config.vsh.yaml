@@ -5,9 +5,12 @@ summary: "ConDo is a feature transformation method for batch correction based on
 description: |
   Confounded Domain Adaptation (ConDo) is a batch correction method that
   performs a linear transformation of the features to match their
-  conditional distribution given biological variables of interest. It fits
-  one adapter per non-reference batch (largest batch as reference),
-  conditioning on cell_type as the biological confounder.
+  conditional distribution given biological variables of interest. The
+  integrator walks a compatibility graph (batches sharing at least one
+  cell type are connected), seeding at the batch with the highest
+  pre-integration silhouette of cell_type, and iteratively merges each
+  best-scoring neighbour by fitting one ConDo adapter conditioned on
+  cell_type. Batches in disconnected components are passed through.
 references:
   # McCarter C.
   # Towards Backwards-Compatible Data with Confounded Domain Adaptation.
