@@ -63,10 +63,11 @@ def _build_adapter(par: dict[str, Any]):
             mmd_size=int(par.get("mmd_size", 20)),
             batch_size=int(par.get("batch_size", 8)),
             weight_decay=float(par.get("weight_decay", 1e-4)),
+            wd_on_bias=bool(par.get("wd_on_bias", False)),
+            patience=int(par.get("patience", 3)),
             random_state=int(par.get("random_state", 42)),
             verbose=0,
             device=device,
-            optimizer=str(par.get("optimizer", "adamw")),
         )
         return ConDoAdapterMMD(**kwargs)
     raise ValueError(f"Unknown divergence: {divergence!r}")

@@ -89,7 +89,25 @@ arguments:
   - name: --weight_decay
     type: float
     default: 1e-4
-    description: AdamW weight decay; only applies when divergence is mmd.
+    description: |
+      AdamW weight decay applied to the matrix/scale parameter. The bias
+      (location) follows --wd_on_bias (default off, so bias trains with
+      weight_decay=0). Only applies when divergence is mmd.
+  - name: --wd_on_bias
+    type: boolean
+    default: false
+    description: |
+      Apply --weight_decay to the bias (location) parameter as well. Off
+      by default: with delta-from-identity init on the matrix, putting WD
+      only on the matrix pulls the linear part toward identity while
+      leaving the location free to align batch means. Only applies when
+      divergence is mmd.
+  - name: --patience
+    type: integer
+    default: 3
+    description: |
+      Early-stopping patience (epochs without train-loss improvement
+      before stopping). Only applies when divergence is mmd.
   - name: --random_state
     type: integer
     default: 42
@@ -101,15 +119,6 @@ arguments:
       Torch device for the affine KLD optimization and the MMD training
       loop. Use 'cuda' or e.g. 'cuda:0' to run on GPU. Numpy
       preprocessing stays on CPU regardless.
-  - name: --optimizer
-    type: string
-    choices: [adamw, muon]
-    default: adamw
-    description: |
-      Optimizer used for the MMD SGD training loop. 'muon' routes 2D
-      parameters through the Newton-Schulz orthogonalized SGD path and
-      sub-2D parameters through an internal AdamW fallback (recommended
-      lr ~ 1e-2). Ignored for divergence=kld.
 resources:
   - type: python_script
     path: script.py
