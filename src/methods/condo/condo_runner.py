@@ -156,13 +156,16 @@ def run_condo(par: dict, meta: dict) -> None:
     batches = np.asarray(adata.obs["batch"].astype(str).values, dtype="U")
     cell_types = np.asarray(adata.obs["cell_type"].astype(str).values, dtype="U")
 
-    # Per-batch pre-integration silhouette of cell_type on obsm['X_pca'].
-    # Used by agglomerative_integrate as the seed criterion (argmax) and
-    # the neighbor-ranking score at each merge step.
-    _, per_batch_asw = _pick_target_by_pre_asw(adata, batches, cell_types)
-    print(">> Agglomerative seed = argmax pre_asw", flush=True)
-    for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
-        print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
+    integrator = par.get("integrator", "agglomerative")
+
+    # 'agglomerative' seeds/ranks by a one-time per-batch pre-integration
+    # silhouette on obsm['X_pca']. 'bestfirst' recomputes asw live on each
+    # agglomeration's corrected features, so it needs no precomputed scores.
+    if integrator == "agglomerative":
+        _, per_batch_asw = _pick_target_by_pre_asw(adata, batches, cell_types)
+        print(">> Agglomerative seed = argmax pre_asw", flush=True)
+        for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
+            print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
 
     if rep == "features":
         Y_full = _to_dense(adata.X).astype(np.float64)
@@ -180,19 +183,36 @@ def run_condo(par: dict, meta: dict) -> None:
         hvg_mask = None
         Y = np.asarray(adata.obsm["X_pca"], dtype=np.float64)
 
-    from condo.batch_integration import agglomerative_integrate
-
     def _adapter_factory():
         return _build_adapter(par)
 
-    result = agglomerative_integrate(
-        Y=Y,
-        batches=batches,
-        confounders=cell_types,
-        batch_score=per_batch_asw,
-        adapter_factory=_adapter_factory,
-        verbose=True,
-    )
+    if integrator == "agglomerative":
+        from condo.batch_integration import agglomerative_integrate
+
+        result = agglomerative_integrate(
+            Y=Y,
+            batches=batches,
+            confounders=cell_types,
+            batch_score=per_batch_asw,
+            adapter_factory=_adapter_factory,
+            verbose=True,
+        )
+    elif integrator == "bestfirst":
+        from condo.batch_integration import bestfirst_integrate
+
+        print(">> bestfirst integrator (competitive forest, live asw)",
+              flush=True)
+        result = bestfirst_integrate(
+            Y=Y,
+            batches=batches,
+            confounders=cell_types,
+            adapter_factory=_adapter_factory,
+            asw_subsample=int(par.get("asw_subsample", 10000)),
+            random_state=int(par.get("random_state", 42)),
+            verbose=True,
+        )
+    else:
+        raise ValueError(f"Unknown integrator: {integrator!r}")
     Y_out = result.Y_out
 
     print(">> Build output", flush=True)
