@@ -65,6 +65,7 @@ def _build_adapter(par: dict[str, Any]):
             weight_decay=float(par.get("weight_decay", 1e-4)),
             wd_on_bias=bool(par.get("wd_on_bias", False)),
             patience=int(par.get("patience", 3)),
+            dplr_rank=int(par.get("dplr_rank", 16)),
             random_state=int(par.get("random_state", 42)),
             verbose=0,
             device=device,
