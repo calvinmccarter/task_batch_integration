@@ -76,7 +76,7 @@ arguments:
     description: Learning rate; only applies when divergence is mmd.
   - name: --mmd_size
     type: integer
-    default: 20
+    default: 40
     description: |
       Number of samples used in each MMD evaluation (K_X in the paper).
       Only applies when divergence is mmd.

@@ -88,7 +88,7 @@ def _build_adapter(par: dict[str, Any]):
             bootstrap_fraction=float(par.get("bootstrap_fraction", 1.0)),
             n_epochs=_resolve_auto(par, "n_epochs", transform_type, int),
             learning_rate=float(par.get("learning_rate", 1e-3)),
-            mmd_size=int(par.get("mmd_size", 20)),
+            mmd_size=int(par.get("mmd_size", 40)),
             batch_size=int(par.get("batch_size", 8)),
             weight_decay=_resolve_auto(par, "weight_decay", transform_type, float),
             patience=int(par.get("patience", 3)),

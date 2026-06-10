@@ -11,7 +11,7 @@ par = {
     "bootstrap_fraction": 1.0,
     "n_epochs": 5,
     "learning_rate": 1e-3,
-    "mmd_size": 20,
+    "mmd_size": 40,
     "batch_size": 8,
     "weight_decay": 1e-4,
     "patience": 3,
