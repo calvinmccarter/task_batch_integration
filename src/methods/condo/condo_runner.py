@@ -55,7 +55,7 @@ _AUTO_DEFAULTS = {
     },
     "weight_decay": {
         "affine": 1e-4,
-        "location-scale": 1e-4,
+        "location-scale": 1e-5,
         "diagonal-plus-low-rank": 1e-5,
     },
 }
