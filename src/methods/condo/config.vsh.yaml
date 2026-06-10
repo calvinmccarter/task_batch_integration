@@ -90,18 +90,10 @@ arguments:
     type: float
     default: 1e-4
     description: |
-      AdamW weight decay applied to the matrix/scale parameter. The bias
-      (location) follows --wd_on_bias (default off, so bias trains with
-      weight_decay=0). Only applies when divergence is mmd.
-  - name: --wd_on_bias
-    type: boolean
-    default: false
-    description: |
-      Apply --weight_decay to the bias (location) parameter as well. Off
-      by default: with delta-from-identity init on the matrix, putting WD
-      only on the matrix pulls the linear part toward identity while
-      leaving the location free to align batch means. Only applies when
-      divergence is mmd.
+      AdamW weight decay applied to all model parameters (matrix/scale
+      and bias/location). For diagonal-plus-low-rank this is instead the
+      coefficient on the explicit ||diag(Δd) + U V^T||²_F loss term.
+      Only applies when divergence is mmd.
   - name: --patience
     type: integer
     default: 3

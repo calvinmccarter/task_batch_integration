@@ -14,7 +14,6 @@ par = {
     "mmd_size": 20,
     "batch_size": 8,
     "weight_decay": 1e-4,
-    "wd_on_bias": False,
     "patience": 3,
     "random_state": 42,
     "device": "cpu",

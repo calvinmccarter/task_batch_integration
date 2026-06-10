@@ -91,7 +91,6 @@ def _build_adapter(par: dict[str, Any]):
             mmd_size=int(par.get("mmd_size", 20)),
             batch_size=int(par.get("batch_size", 8)),
             weight_decay=_resolve_auto(par, "weight_decay", transform_type, float),
-            wd_on_bias=bool(par.get("wd_on_bias", True)),
             patience=int(par.get("patience", 3)),
             dplr_rank=int(par.get("dplr_rank", 16)),
             random_state=int(par.get("random_state", 42)),
