@@ -4,7 +4,6 @@ import sys
 par = {
     "input": "resources_test/task_batch_integration/cxg_immune_cell_atlas/dataset.h5ad",
     "output": "output.h5ad",
-    "divergence": "kld",
     "transform_type": "location-scale",
     "rep": "features",
     "hvg_only": False,
@@ -13,7 +12,7 @@ par = {
     "learning_rate": 1e-3,
     "mmd_size": 40,
     "batch_size": 8,
-    "weight_decay": 1e-4,
+    "weight_decay": 1e-5,
     "patience": 3,
     "random_state": 42,
     "device": "cpu",

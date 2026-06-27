@@ -7,19 +7,15 @@ neighbour by fitting a ConDo adapter conditioned on cell_type. Batches
 in disconnected components of the compatibility graph are passed through
 untouched.
 
-Supports three orthogonal axes (set via the ``par`` dict in the viash
+Supports two orthogonal axes (set via the ``par`` dict in the viash
 script):
 
-* ``divergence``     : 'kld' | 'mmd'
 * ``transform_type`` : 'location-scale' | 'affine'
 * ``rep``            : 'features' | 'pca'
     - 'features': fit on normalized expression, write corrected_counts.
     - 'pca':      fit on obsm['X_pca'], write obsm['X_emb'] (embedding).
 * ``hvg_only`` (features only): restrict fit to var['hvg'] columns; pass
   through non-HVGs at source values.
-
-MMD-specific knobs (``bootstrap_fraction``, ``n_epochs``,
-``learning_rate``) are forwarded to ``ConDoAdapterMMD``.
 """
 from __future__ import annotations
 
@@ -30,10 +26,8 @@ import anndata as ad
 import numpy as np
 from scipy.sparse import csr_matrix, issparse
 
-# condo 0.8.0 references `np.Inf`, removed in NumPy 2.0. Restore the alias
-# before any condo import (used in condo.utils.EarlyStopping). The viash
-# config also pins numpy<2 in docker, but the shim makes the runner work
-# in newer environments too.
+# Older condo releases reference `np.Inf`, removed in NumPy 2.0. Restore
+# the alias before any condo import (used in condo.utils.EarlyStopping).
 if not hasattr(np, "Inf"):
     np.Inf = np.inf
 
@@ -42,63 +36,22 @@ def _to_dense(x: Any) -> np.ndarray:
     return x.toarray() if issparse(x) else np.asarray(x)
 
 
-# Transform-specific defaults applied when par["n_epochs"] or
-# par["weight_decay"] is the literal "auto". DPLR needs more epochs to
-# converge (the explicit ||Δd+UV^T||²_F penalty + ~17 sequential merges
-# on the harder datasets) and a smaller wd (penalty scales with the d×d
-# perturbation, so the same nominal wd has more pull than affine's WD).
-_AUTO_DEFAULTS = {
-    "n_epochs": {
-        "affine": 5,
-        "location-scale": 5,
-        "diagonal-plus-low-rank": 50,
-    },
-    "weight_decay": {
-        "affine": 1e-4,
-        "location-scale": 1e-5,
-        "diagonal-plus-low-rank": 1e-5,
-    },
-}
-
-
-def _resolve_auto(par: dict, key: str, transform_type: str, cast):
-    """Return par[key] cast appropriately, with 'auto' (or missing) falling
-    back to the transform-specific default in _AUTO_DEFAULTS."""
-    val = par.get(key, "auto")
-    if isinstance(val, str) and val.lower() == "auto":
-        return _AUTO_DEFAULTS[key][transform_type]
-    return cast(val)
-
-
 def _build_adapter(par: dict[str, Any]):
-    divergence = par["divergence"]
-    transform_type = par["transform_type"]
-    device = par.get("device", "cpu")
-    if divergence == "kld":
-        from condo import ConDoAdapterKLD
+    from condo import ConDoAdapterMMD
 
-        return ConDoAdapterKLD(
-            transform_type=transform_type, verbose=0, device=device,
-        )
-    if divergence == "mmd":
-        from condo import ConDoAdapterMMD
-
-        kwargs = dict(
-            transform_type=transform_type,
-            bootstrap_fraction=float(par.get("bootstrap_fraction", 1.0)),
-            n_epochs=_resolve_auto(par, "n_epochs", transform_type, int),
-            learning_rate=float(par.get("learning_rate", 1e-3)),
-            mmd_size=int(par.get("mmd_size", 40)),
-            batch_size=int(par.get("batch_size", 8)),
-            weight_decay=_resolve_auto(par, "weight_decay", transform_type, float),
-            patience=int(par.get("patience", 3)),
-            dplr_rank=int(par.get("dplr_rank", 16)),
-            random_state=int(par.get("random_state", 42)),
-            verbose=0,
-            device=device,
-        )
-        return ConDoAdapterMMD(**kwargs)
-    raise ValueError(f"Unknown divergence: {divergence!r}")
+    return ConDoAdapterMMD(
+        transform_type=par["transform_type"],
+        bootstrap_fraction=float(par.get("bootstrap_fraction", 1.0)),
+        n_epochs=int(par.get("n_epochs", 5)),
+        learning_rate=float(par.get("learning_rate", 1e-3)),
+        mmd_size=int(par.get("mmd_size", 40)),
+        batch_size=int(par.get("batch_size", 8)),
+        weight_decay=float(par.get("weight_decay", 1e-4)),
+        patience=int(par.get("patience", 3)),
+        random_state=int(par.get("random_state", 42)),
+        verbose=0,
+        device=par.get("device", "cpu"),
+    )
 
 
 def _read_input(par: dict, meta: dict) -> ad.AnnData:

@@ -24,24 +24,13 @@ info:
   method_types: [feature]
   preferred_normalization: log_cp10k
   variants:
-    condo_kld_location_scale:
-      divergence: kld
-      transform_type: location-scale
-    condo_kld_affine:
-      divergence: kld
-      transform_type: affine
-    condo_mmd_location_scale:
-      divergence: mmd
-      transform_type: location-scale
     condo_mmd_affine:
-      divergence: mmd
       transform_type: affine
+      weight_decay: 1.0e-4
+    condo_mmd_location_scale:
+      transform_type: location-scale
+      weight_decay: 1.0e-5
 arguments:
-  - name: --divergence
-    type: string
-    choices: [kld, mmd]
-    default: kld
-    description: Distributional divergence to use.
   - name: --transform_type
     type: string
     choices: [location-scale, affine]
@@ -65,52 +54,45 @@ arguments:
   - name: --bootstrap_fraction
     type: float
     default: 1.0
-    description: Optional random subsample of data for constrained memory settings; only applies when divergence is mmd.
+    description: Optional random subsample of data for constrained memory settings.
   - name: --n_epochs
     type: integer
     default: 5
-    description: Number of epochs to run; only applies when divergence is mmd.
+    description: Number of epochs to run.
   - name: --learning_rate
     type: float
     default: 0.001
-    description: Learning rate; only applies when divergence is mmd.
+    description: Learning rate.
   - name: --mmd_size
     type: integer
     default: 40
-    description: |
-      Number of samples used in each MMD evaluation (K_X in the paper).
-      Only applies when divergence is mmd.
+    description: Number of samples used in each MMD evaluation (K_X in the paper).
   - name: --batch_size
     type: integer
     default: 8
-    description: |
-      Number of MMD-loss evaluations per gradient step (K_Z in the paper).
-      Only applies when divergence is mmd.
+    description: Number of MMD-loss evaluations per gradient step (K_Z in the paper).
   - name: --weight_decay
     type: float
-    default: 1e-4
+    default: 1.0e-5
     description: |
-      AdamW weight decay applied to all model parameters (matrix/scale
-      and bias/location). For diagonal-plus-low-rank this is instead the
-      coefficient on the explicit ||diag(Δd) + U V^T||²_F loss term.
-      Only applies when divergence is mmd.
+      AdamW weight decay applied to all model parameters (matrix/scale and
+      bias/location).
   - name: --patience
     type: integer
     default: 3
     description: |
       Early-stopping patience (epochs without train-loss improvement
-      before stopping). Only applies when divergence is mmd.
+      before stopping).
   - name: --random_state
     type: integer
     default: 42
-    description: Random seed for the adapter; only applies when divergence is mmd.
+    description: Random seed for the adapter.
   - name: --device
     type: string
     default: cpu
     description: |
-      Torch device for the affine KLD optimization and the MMD training
-      loop. Use 'cuda' or e.g. 'cuda:0' to run on GPU. Numpy
-      preprocessing stays on CPU regardless.
+      Torch device for the MMD training loop. Use 'cuda' or e.g. 'cuda:0'
+      to run on GPU. Numpy preprocessing stays on CPU regardless.
 resources:
   - type: python_script
     path: script.py
@@ -122,14 +104,15 @@ engines:
     setup:
       - type: python
         pypi:
-          - condo==1.0.0
+          - condo==1.1.0
           - miceforest==5.7.0
           - numpy<2
           - pandas
           - pytorch-minimize==0.0.2
+          - scib
           - scikit-learn
           - scipy>=1.6
-          - torch==1.9.0
+          - torch>=2.12.0
 runners:
   - type: executable
   - type: nextflow
