@@ -26,11 +26,6 @@ import anndata as ad
 import numpy as np
 from scipy.sparse import csr_matrix, issparse
 
-# Older condo releases reference `np.Inf`, removed in NumPy 2.0. Restore
-# the alias before any condo import (used in condo.utils.EarlyStopping).
-if not hasattr(np, "Inf"):
-    np.Inf = np.inf
-
 
 def _to_dense(x: Any) -> np.ndarray:
     return x.toarray() if issparse(x) else np.asarray(x)
