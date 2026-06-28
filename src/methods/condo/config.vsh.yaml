@@ -52,7 +52,7 @@ arguments:
       non-HVG genes at the source's normalized value. Only applies when
       --rep=features.
   - name: --bootstrap_fraction
-    type: float
+    type: double
     default: 1.0
     description: Optional random subsample of data for constrained memory settings.
   - name: --n_epochs
@@ -60,7 +60,7 @@ arguments:
     default: 5
     description: Number of epochs to run.
   - name: --learning_rate
-    type: float
+    type: double
     default: 0.001
     description: Learning rate.
   - name: --mmd_size
@@ -72,7 +72,7 @@ arguments:
     default: 8
     description: Number of MMD-loss evaluations per gradient step (K_Z in the paper).
   - name: --weight_decay
-    type: float
+    type: double
     default: 1.0e-5
     description: |
       AdamW weight decay applied to all model parameters (matrix/scale and
