@@ -105,6 +105,122 @@ def _pick_target_by_pre_asw(
     return best[0], per_batch
 
 
+def _per_batch_batch_silhouette(
+    adata: ad.AnnData,
+    batches: np.ndarray,
+    random_state: int,
+    max_cells: int = 20000,
+) -> dict:
+    """Per-batch mean silhouette of the *batch* label on ``obsm['X_pca']``.
+
+    Symmetric analog of the cell-type silhouette used for the baseline
+    ranking: instead of "how well separated are cell types within a
+    batch", this measures "how well separated is each batch from the
+    others" in the pre-integration embedding. Batch silhouette is
+    undefined within a single batch, so it is computed globally on a
+    batch-stratified subsample (silhouette is O(n^2); the atlases have up
+    to ~500k cells). High score => the batch stands apart from the rest
+    (strong batch effect); low score => the batch already overlaps the
+    others.
+    """
+    from sklearn.metrics import silhouette_samples
+
+    if "X_pca" not in adata.obsm:
+        raise ValueError("batch_silhouette ranking requires obsm['X_pca']")
+    X = np.asarray(adata.obsm["X_pca"])
+    n = X.shape[0]
+    rng = np.random.default_rng(random_state)
+    unique = np.unique(batches)
+
+    # Batch-stratified subsample to ~max_cells so every batch is
+    # represented and the silhouette stays tractable.
+    if n > max_cells:
+        per = max(2, max_cells // len(unique))
+        idx_parts = []
+        for b in unique:
+            bidx = np.flatnonzero(batches == b)
+            if bidx.size > per:
+                bidx = rng.choice(bidx, size=per, replace=False)
+            idx_parts.append(bidx)
+        sub_idx = np.concatenate(idx_parts)
+    else:
+        sub_idx = np.arange(n)
+
+    Xs = X[sub_idx]
+    bs = batches[sub_idx]
+    per_batch: dict = {b: float("nan") for b in unique}
+    if len(np.unique(bs)) < 2:
+        # Degenerate: only one batch present -> no separation to speak of.
+        return {b: 0.0 for b in unique}
+    sil = silhouette_samples(Xs, bs)
+    for b in unique:
+        m = bs == b
+        if m.sum() > 0:
+            per_batch[b] = float(sil[m].mean())
+    # Any batch missing from the subsample falls back to the global mean.
+    finite = [v for v in per_batch.values() if np.isfinite(v)]
+    fallback = float(np.mean(finite)) if finite else 0.0
+    for b in unique:
+        if not np.isfinite(per_batch[b]):
+            per_batch[b] = fallback
+    return per_batch
+
+
+def _compute_batch_score(
+    adata: ad.AnnData,
+    batches: np.ndarray,
+    cell_types: np.ndarray,
+    strategy: str,
+    random_state: int,
+) -> tuple[dict, str]:
+    """Return ``(batch_score, description)`` for an agglomerative ranking
+    strategy.
+
+    ``batch_score`` is consumed by :func:`agglomerative_integrate` as BOTH
+    the seed criterion (``argmax``) and the compatible-neighbour ranking
+    (``argmax`` over graph neighbours of the current target set). So the
+    chosen strategy fully determines the seed *and* the merge order.
+
+    Strategies (ablations around the ``celltype_silhouette`` baseline):
+
+    * ``celltype_silhouette`` : per-batch cell-type silhouette on X_pca,
+      highest first. This is the ``v3_baseline_seeded`` behaviour.
+    * ``random``              : a fixed per-batch random priority seeded by
+      ``random_state`` (reproducible random seed + random neighbour order).
+    * ``biggest``             : batch size in cells, biggest first.
+    * ``batch_silhouette_low``: per-batch batch silhouette, LOWEST first
+      (merge already-mixed batches earliest).
+    * ``batch_silhouette_high``: per-batch batch silhouette, HIGHEST first
+      (mirrors the cell-type-silhouette-highest baseline).
+    """
+    unique = np.unique(batches)
+    if strategy == "celltype_silhouette":
+        _, per_batch = _pick_target_by_pre_asw(adata, batches, cell_types)
+        return per_batch, "per-batch cell-type silhouette on X_pca (highest first)"
+    if strategy == "biggest":
+        per_batch = {b: float((batches == b).sum()) for b in unique}
+        return per_batch, "batch size in cells (biggest first)"
+    if strategy == "random":
+        rng = np.random.default_rng(random_state)
+        vals = rng.random(len(unique))
+        per_batch = {b: float(v) for b, v in zip(unique, vals)}
+        return per_batch, f"fixed random priority (random_state={random_state})"
+    if strategy in ("batch_silhouette_low", "batch_silhouette_high"):
+        raw = _per_batch_batch_silhouette(adata, batches, random_state)
+        sign = -1.0 if strategy == "batch_silhouette_low" else 1.0
+        per_batch = {b: sign * raw[b] for b in unique}
+        direction = "lowest" if sign < 0 else "highest"
+        return (
+            per_batch,
+            f"per-batch batch silhouette on X_pca ({direction} first)",
+        )
+    raise ValueError(
+        f"Unknown ranking_strategy {strategy!r}; expected one of: "
+        "celltype_silhouette, random, biggest, batch_silhouette_low, "
+        "batch_silhouette_high"
+    )
+
+
 def _select_feature_columns(adata: ad.AnnData, hvg_only: bool) -> np.ndarray | None:
     """Return a boolean column mask if HVG-only is requested, else None."""
     if not hvg_only:
@@ -133,13 +249,19 @@ def run_condo(par: dict, meta: dict) -> None:
     batches = np.asarray(adata.obs["batch"].astype(str).values, dtype="U")
     cell_types = np.asarray(adata.obs["cell_type"].astype(str).values, dtype="U")
 
-    # Per-batch pre-integration silhouette of cell_type on obsm['X_pca'].
-    # Used by agglomerative_integrate as the seed criterion (argmax) and
-    # the neighbor-ranking score at each merge step.
-    _, per_batch_asw = _pick_target_by_pre_asw(adata, batches, cell_types)
-    print(">> Agglomerative seed = argmax pre_asw", flush=True)
-    for b, s in sorted(per_batch_asw.items(), key=lambda kv: -kv[1]):
-        print(f"    pre_asw[{b}] = {s:.4f}", flush=True)
+    # Per-batch ranking score consumed by agglomerative_integrate as both
+    # the seed criterion (argmax) and the neighbor-ranking score at each
+    # merge step. The default 'celltype_silhouette' strategy reproduces
+    # v3_baseline_seeded; the other strategies are the paper ablations.
+    strategy = par.get("ranking_strategy", "celltype_silhouette")
+    random_state = int(par.get("random_state", 42))
+    batch_score, score_desc = _compute_batch_score(
+        adata, batches, cell_types, strategy, random_state
+    )
+    print(f">> Agglomerative ranking strategy = {strategy}", flush=True)
+    print(f">>   score = {score_desc}; seed = argmax(score)", flush=True)
+    for b, s in sorted(batch_score.items(), key=lambda kv: -kv[1]):
+        print(f"    score[{b}] = {s:.4f}", flush=True)
 
     if rep == "features":
         Y_full = _to_dense(adata.X).astype(np.float64)
@@ -166,7 +288,7 @@ def run_condo(par: dict, meta: dict) -> None:
         Y=Y,
         batches=batches,
         confounders=cell_types,
-        batch_score=per_batch_asw,
+        batch_score=batch_score,
         adapter_factory=_adapter_factory,
         verbose=True,
     )
