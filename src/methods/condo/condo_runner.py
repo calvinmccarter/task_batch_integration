@@ -185,21 +185,35 @@ def _compute_batch_score(
 
     * ``celltype_silhouette`` : per-batch cell-type silhouette on X_pca,
       highest first. This is the ``v3_baseline_seeded`` behaviour.
+    * ``celltype_silhouette_low`` : same score, LOWEST first (mirror).
     * ``random``              : a fixed per-batch random priority seeded by
       ``random_state`` (reproducible random seed + random neighbour order).
     * ``biggest``             : batch size in cells, biggest first.
+    * ``smallest``            : batch size in cells, smallest first (mirror).
     * ``batch_silhouette_low``: per-batch batch silhouette, LOWEST first
       (merge already-mixed batches earliest).
     * ``batch_silhouette_high``: per-batch batch silhouette, HIGHEST first
       (mirrors the cell-type-silhouette-highest baseline).
     """
     unique = np.unique(batches)
-    if strategy == "celltype_silhouette":
+    if strategy in ("celltype_silhouette", "celltype_silhouette_low"):
         _, per_batch = _pick_target_by_pre_asw(adata, batches, cell_types)
+        if strategy == "celltype_silhouette_low":
+            # argmax over negated score -> lowest cell-type silhouette first.
+            # -inf sentinels (degenerate batches) become +inf and would be
+            # picked first; clamp them to the worst finite so they stay last.
+            finite = [v for v in per_batch.values() if np.isfinite(v)]
+            worst = min(finite) if finite else 0.0
+            per_batch = {b: -(v if np.isfinite(v) else worst)
+                         for b, v in per_batch.items()}
+            return per_batch, "per-batch cell-type silhouette on X_pca (lowest first)"
         return per_batch, "per-batch cell-type silhouette on X_pca (highest first)"
-    if strategy == "biggest":
-        per_batch = {b: float((batches == b).sum()) for b in unique}
-        return per_batch, "batch size in cells (biggest first)"
+    if strategy in ("biggest", "smallest"):
+        counts = {b: float((batches == b).sum()) for b in unique}
+        if strategy == "smallest":
+            per_batch = {b: -c for b, c in counts.items()}
+            return per_batch, "batch size in cells (smallest first)"
+        return counts, "batch size in cells (biggest first)"
     if strategy == "random":
         rng = np.random.default_rng(random_state)
         vals = rng.random(len(unique))
@@ -216,8 +230,8 @@ def _compute_batch_score(
         )
     raise ValueError(
         f"Unknown ranking_strategy {strategy!r}; expected one of: "
-        "celltype_silhouette, random, biggest, batch_silhouette_low, "
-        "batch_silhouette_high"
+        "celltype_silhouette, celltype_silhouette_low, random, biggest, "
+        "smallest, batch_silhouette_low, batch_silhouette_high"
     )
 
 
